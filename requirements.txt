@@ -1,0 +1,7 @@
+requests>=2.31.0
+PyYAML>=6.0
+urllib3>=2.0
+
+# 可选依赖（按需安装）
+# playwright>=1.40   # 交互式扫码获取 cookie：pip install playwright && playwright install chromium
+# redis>=5.0         # 分布式锁走 Redis 时使用

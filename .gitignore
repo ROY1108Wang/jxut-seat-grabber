@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 凭据：绝对不要提交
+secrets/
+*.cookie
+*.cookie.json
+.env
+
+# 本地运行产物
+.locks/
+logs/
+*.log
+
+# 个人配置（模板 config.example.yaml 才入库）
+config/config.yaml
+
+.idea/
+.vscode/

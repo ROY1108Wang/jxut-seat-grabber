@@ -1,0 +1,71 @@
+name: 补抢重试与 Cookie 体检
+
+# ===========================================================
+#  1) healthcheck：每天北京 05:30（UTC 21:30）先体检 cookie，
+#     赶在 06:05 主任务前发现登录态失效。
+#  2) retry：北京 06:30 / 07:00 / 07:30 / 08:00（UTC 22:00-23:30）
+#     再补抢三次 —— 万一 06:05 那波某个时段没抢到（被占/放号晚），
+#     这里还能捡回来。--no-wait 表示不再等 open_time。
+#  两个 job 都抢配置里的同一天（下一天），不会误抢当天。
+# ===========================================================
+on:
+  schedule:
+    - cron: '30 21 * * *'      # 北京 05:30 体检
+    - cron: '0,30 22,23 * * *' # 北京 06:00/06:30/07:00/07:30 补抢
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  healthcheck:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 21 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        user: ${{ fromJson(vars.GRAB_USERS || '["all"]') }}
+    env:
+      JXUT_COOKIE: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
+      SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+      PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: 校验登录态
+        run: python main.py -c config/cloud.yaml probe -u "${{ matrix.user }}"
+
+  retry:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0,30 22,23 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: seat-retry-${{ matrix.user }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        user: ${{ fromJson(vars.GRAB_USERS || '["all"]') }}
+    env:
+      JXUT_COOKIE: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
+      SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+      PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+      LOCK_GIST_ID: ${{ secrets.LOCK_GIST_ID }}
+      LOCK_GIST_TOKEN: ${{ secrets.LOCK_GIST_TOKEN }}
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: 补抢未达成的时段
+        run: python main.py -c config/cloud.yaml run -u "${{ matrix.user }}" --no-wait

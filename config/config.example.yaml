@@ -1,0 +1,123 @@
+# ===================================================================
+#  jxut-seat-grabber —— 江西科技学院图书馆座位预约自动化
+#  接口来源：jxut.educationgroup.cn.har 抓包逆向
+# -------------------------------------------------------------------
+#  所有 *敏感字段*（cookie / token / key）都不要写死在这里，
+#  统一使用 `${ENV:变量名}` 从环境变量或 GitHub Secrets 注入。
+# ===================================================================
+
+global:
+  # 站点地址（抓包得到的 host）
+  base_url: "https://jxut.educationgroup.cn"
+  api_prefix: "/tsg/kzwWx"
+  # 预约主页，用于 Referer 与身份信息抓取
+  index_path: "/tsg/kzwWx/index"
+
+  timezone: "Asia/Shanghai"   # 全部时间以该时区为准
+  timeout: 10                 # 单次请求超时（秒）
+  http_retries: 3             # 网络层重试
+  min_interval: 0.35          # 同一会话两次请求最小间隔（秒），礼貌请求，别调太小
+  jitter: 0.25                # 间隔随机抖动，避免多台机器节奏一致被识别
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+  proxy: null                 # 例如 "http://127.0.0.1:7890"
+
+  # ---- 并发 / 分布式 ----
+  max_workers: 4              # 多用户并发线程数
+  burst_workers: 1            # 单时段同时发起的抢座请求数（>1 有重复占座风险，谨慎）
+  burst_delay: 0.0            # burst 内每个线程启动延迟（秒）
+
+  # ---- 抢点模式 ----
+  open_time: null             # 例如 "07:00:00"：预约开放的时刻，脚本会精确等到该时刻再开抢
+  wait_timeout: 3600          # 等待开放时刻的最大时长（秒），超时则退出
+
+  # ---- 失败重试 ----
+  max_retry: 5                # 单时段失败后重试轮数
+  retry_backoff: 1.5          # 退避基数（秒），实际 sleep = base * 2^n ± jitter
+  fallback_seats: 8           # 一次时段最多尝试的候选座位数（换座次数）
+
+  # ---- 分布式去重锁（避免多个 runner 重复抢同一人同一时段）----
+  lock:
+    enabled: true
+    backend: none             # none | redis | gist
+    ttl: 900                  # 锁有效期（秒）
+    redis_url: "${ENV:REDIS_URL}"
+    gist_id: "${ENV:LOCK_GIST_ID}"
+    gist_token: "${ENV:LOCK_GIST_TOKEN}"
+    wait: true                # 拿不到锁是等待还是直接放弃
+
+# =========================== 通知渠道 ===========================
+# 每个渠道 enabled=true 才会真正发送，可同时配置多个。
+notify:
+  title_prefix: "[抢座]"
+  serverchan:
+    enabled: false
+    # Server酱³ / Turbo：https://sct.ftqq.com/ 或 https://sc.ftqq.com/
+    send_key: "${ENV:SERVERCHAN_KEY}"
+  pushplus:
+    enabled: false
+    token: "${ENV:PUSHPLUS_TOKEN}"
+  telegram:
+    enabled: false
+    bot_token: "${ENV:TG_BOT_TOKEN}"
+    chat_id: "${ENV:TG_CHAT_ID}"
+  dingtalk:
+    enabled: false
+    webhook: "${ENV:DINGTALK_WEBHOOK}"
+    secret: "${ENV:DINGTALK_SECRET}"    # 可选，加签模式
+  wecom_bot:
+    enabled: false
+    webhook: "${ENV:WECOM_WEBHOOK}"     # 企业微信机器人完整 webhook 地址
+  bark:
+    enabled: false
+    device_key: "${ENV:BARK_KEY}"
+    server: "https://api.day.app"
+  smtp:
+    enabled: false
+    host: "${ENV:SMTP_HOST}"
+    port: 465
+    ssl: true
+    username: "${ENV:SMTP_USER}"
+    password: "${ENV:SMTP_PASS}"
+    to: "${ENV:SMTP_TO}"
+  webhook:
+    enabled: false
+    url: "${ENV:NOTIFY_WEBHOOK}"        # 自定义：POST JSON {"title":..,"content":..}
+
+# =========================== 用户清单 ===========================
+# 一份配置文件支持任意多个用户，runner 会用线程池并发处理。
+users:
+  - name: "zhangsan"
+    enabled: true
+    # ---- 凭据来源（三选一，优先级从上到下）----
+    cookie_env: "JXUT_COOKIE_ZHANGSAN"   # 从环境变量读取整条 Cookie 字符串
+    cookie_file: null                    # 或 secrets/zhangsan.cookie 文件（一行）
+    cookie: null                         # 或直接内联（不建议提交到仓库）
+
+    # 扫描登录用：仅在 `python main.py login` 时需要
+    login_url: "https://jxut.educationgroup.cn/tsg/kzwWx/index"
+    cookie_cache: "secrets/zhangsan.cookie.json"
+    headless: false                      # playwright 扫码时必须 false
+
+    max_retry: null                      # 覆盖全局 max_retry
+    notify_extra: ""                     # 附加到通知文案里的备注
+
+    targets:
+      # ---------- 目标 1：明天的中午时段，优先指定座位 ----------
+      - date_offset: 1                   # 今天 +1 天；也可用 dates: ["2026-10-22"] 精确指定
+        periods: ["中午", "12:00-14:00"] # 匹配 sjdName 或 sjdStart-sjdEnd，支持 fnmatch 通配
+        rooms: ["*4楼紫阳阁-C*", "*4楼紫阳阁-D*"]  # roomName 匹配，支持通配，按顺序优先
+        seats: ["019", "002", "021"]     # 理想座位号（zwCode），按顺序优先
+        avoid_seats: []                  # 排除座位号
+        order: preferred                 # preferred | code_asc | code_desc | random
+        allow_change: true               # 已预约但不在理想座位时是否换座
+        allow_skip_if_booked: true       # 已预约到理想座位则跳过
+        fallback_seats: 10
+
+      # ---------- 目标 2：后天下午任意空位 ----------
+      - date_offset: 2
+        periods: ["下午*"]
+        rooms: ["*紫阳阁*"]
+        seats: []
+        order: code_asc
+        allow_change: false
+        fallback_seats: 5

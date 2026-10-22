@@ -1,0 +1,122 @@
+name: 图书馆自动抢座
+
+# ===========================================================
+#  每天北京时间 06:05 自动抢「下一天」的座位
+#    GitHub cron 是 UTC，且实际触发会有排队延迟，
+#    所以这里提前到 UTC 21:55（北京 05:55）启动，
+#    由脚本自己等到 open_time=06:05:00 再发第一枪。
+#  手动触发（网页 / 手机 GitHub App）：默认立即执行，不等点。
+# ===========================================================
+on:
+  schedule:
+    - cron: '55 21 * * *'   # 北京 05:55（每天）
+  workflow_dispatch:
+    inputs:
+      user:
+        description: '要抢的用户，大写后缀；all 表示全部'
+        required: false
+        default: 'all'
+      at:
+        description: '等到该时刻再抢（如 06:05:00）；留空=立即抢'
+        required: false
+        default: ''
+      date:
+        description: '指定日期 YYYY-MM-DD；留空=按配置抢下一天'
+        required: false
+        default: ''
+      dry_run:
+        description: '试运行，只选座不下单'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  grab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    # 同一用户同一时刻只跑一个任务，配合文件锁避免重复下单
+    concurrency:
+      group: seat-grab-${{ github.event.inputs.user || github.run_id }}-${{ github.workflow }}
+      cancel-in-progress: false
+
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        # Settings → Secrets and variables → Actions → Variables → GRAB_USERS
+        # 值为 JSON 数组，元素必须大写：["ZHANGSAN"]
+        user: ${{ fromJson(github.event.inputs.user && format('["{0}"]', github.event.inputs.user) || vars.GRAB_USERS || '["all"]') }}
+
+    env:
+      # Secrets 必须命名为 JXUT_COOKIE_<大写用户名>
+      JXUT_COOKIE: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
+      TZ: Asia/Shanghai
+      SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+      PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+      DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+      WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+      BARK_KEY: ${{ secrets.BARK_KEY }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_TO: ${{ secrets.SMTP_TO }}
+      LOCK_GIST_ID: ${{ secrets.LOCK_GIST_ID }}
+      LOCK_GIST_TOKEN: ${{ secrets.LOCK_GIST_TOKEN }}
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 打印当前时间
+        run: |
+          echo "UTC   : $(date -u '+%F %T')"
+          echo "Beijing: $(TZ=Asia/Shanghai date '+%F %T')"
+
+      - name: 执行抢座
+        id: grab
+        run: |
+          set -o pipefail
+          CFG=config/cloud.yaml
+          test -f "$CFG" || { echo "::error::缺少 config/cloud.yaml"; exit 1; }
+          ARGS=(-u "${{ matrix.user }}")
+          # 定时任务才等待 open_time；手机点一下就立即抢
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ github.event.inputs.at }}" ]; then
+              ARGS+=(--at "${{ github.event.inputs.at }}")
+            else
+              ARGS+=(--no-wait)
+            fi
+          fi
+          [ "${{ github.event.inputs.dry_run }}" = "true" ] && ARGS+=(--dry-run)
+          [ -n "${{ github.event.inputs.date }}" ] && ARGS+=(--date "${{ github.event.inputs.date }}")
+          echo "执行参数: python main.py -c $CFG run ${ARGS[*]}"
+          python main.py -c "$CFG" run "${ARGS[@]}" 2>&1 | tee "grab-${{ matrix.user }}.log"
+
+      - name: 上传日志与历史记录
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grab-log-${{ matrix.user }}-${{ github.run_number }}
+          path: |
+            grab-*.log
+            logs/history.log
+          retention-days: 7
+          if-no-files-found: ignore

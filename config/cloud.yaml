@@ -1,0 +1,73 @@
+# 云端（GitHub Actions）专用配置 —— 会随仓库提交，请勿写入任何 cookie/密钥
+#
+# 策略：Action 在北京 06:05 触发 -> 抢「当天 + 1 天」的座位
+#       房间：图书馆4F_4楼紫阳阁-D
+#       座位：007 优先 -> 001~006 -> 都没有则坐 D 区其它空位
+#       时段：中午 12:00 起 ~ 晚上2 21:30 结束（共 5 段）
+global:
+  base_url: "https://jxut.educationgroup.cn"
+  api_prefix: "/tsg/kzwWx"
+  index_path: "/tsg/kzwWx/index"
+
+  timezone: "Asia/Shanghai"
+  timeout: 10
+  http_retries: 3
+  min_interval: 0.35
+  jitter: 0.25
+
+  max_workers: 4
+
+  # Action 在 UTC 21:55（北京 05:55）启动，这里等到 06:05 准点开抢
+  open_time: "06:05:00"
+  wait_timeout: 1800
+
+  # 放号若晚于 06:05：10s 上限 × 90 轮 ≈ 最多再等 15 分钟
+  max_retry: 90
+  retry_backoff: 4
+  retry_max_backoff: 10
+
+  fallback_seats: 12
+  history_file: "logs/history.log"
+
+  lock:
+    enabled: true
+    backend: file
+    ttl: 900
+    wait: true
+
+notify:
+  title_prefix: "[抢座]"
+  # 想收推送就把 enabled 改 true，并在仓库 Settings → Secrets 里配对应 key
+  serverchan:
+    enabled: true
+    send_key: "${ENV:SERVERCHAN_KEY}"
+
+users:
+  # 用户名 zhangsan -> Secrets 里对应 JXUT_COOKIE_ZHANGSAN
+  # 加人：复制这一段改 name / cookie_env，并同步 Variables 里的 GRAB_USERS
+  - name: "zhangsan"
+    enabled: true
+    cookie_env: "JXUT_COOKIE_ZHANGSAN"
+    headless: false
+
+    targets:
+      - date_offset: 1          # 运行日的下一天
+        periods:                # 名称与起止时间双写，服务端改名也不漏
+          - "中午"
+          - "12:00-14:00"
+          - "下午"
+          - "14:00-16:00"
+          - "下午2"
+          - "16:00-18:00"
+          - "晚上"
+          - "18:00-20:00"
+          - "晚上2"
+          - "20:00-21:30"
+        rooms: ["*4楼紫阳阁-D*"]
+        seats: ["007", "001", "002", "003", "004", "005", "006"]
+        avoid_seats: []
+        order: preferred
+        require_preferred: false   # false：7 个都没有时才退到 D 区其它空位
+        allow_change: true         # 该时段已约别的座 -> 改过来
+        allow_skip_if_booked: true # 已坐到目标之一 -> 不重复下单
+        fallback_seats: 12
