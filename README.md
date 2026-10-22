@@ -146,6 +146,8 @@ Settings → Secrets and variables → Actions：
 - Secrets：`JXUT_COOKIE_<大写用户名>`（如 `JXUT_COOKIE_ZHANGSAN`）、通知渠道 key、`LOCK_GIST_TOKEN`
 - Variables：`GRAB_USERS`，JSON 数组，**元素必须大写**，例如 `["ZHANGSAN","LISI"]`
 
+> 手动触发时 `user` 填 `all` 或留空 = 按 `GRAB_USERS` 展开成多个独立矩阵任务；只有填具体用户名才单跑一个。若 `GRAB_USERS` 未配置且不填，默认按 `["ZHANGSAN"]` 处理。
+
 矩阵 = 真正的分布式：每个用户一个独立 runner 并行执行，`concurrency` + 分布式锁双保险防止重复下单。
 
 > ⚠️ GitHub 对**连续 60 天无任何提交**的仓库会停用定时任务。长期放着用，建议 `watchdog.yml` 里再挂一个 `repository_dispatch`，或不定期 push 一次。

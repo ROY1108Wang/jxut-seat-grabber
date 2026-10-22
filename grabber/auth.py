@@ -53,6 +53,10 @@ class AuthManager:
             alt = os.environ.get(f"JXUT_COOKIE_{self.user.name.upper()}")
             if alt:
                 return self._normalize(alt)
+            # 兜底：矩阵只注入了通用变量时也能用
+            generic = os.environ.get("JXUT_COOKIE")
+            if generic:
+                return self._normalize(generic)
 
         for path in filter(None, [self.user.cookie_file]):
             cookie = self._from_file(path)

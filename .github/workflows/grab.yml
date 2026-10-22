@@ -47,13 +47,15 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
+        # 手动输入 user 且不是 all -> 只跑该用户；否则按 GRAB_USERS 展开
         # Settings → Secrets and variables → Actions → Variables → GRAB_USERS
         # 值为 JSON 数组，元素必须大写：["ZHANGSAN"]
-        user: ${{ fromJson(github.event.inputs.user && format('["{0}"]', github.event.inputs.user) || vars.GRAB_USERS || '["all"]') }}
+        user: ${{ fromJson((github.event.inputs.user != '' && github.event.inputs.user != 'all' && format('["{0}"]', github.event.inputs.user)) || vars.GRAB_USERS || '["ZHANGSAN"]') }}
 
     env:
-      # Secrets 必须命名为 JXUT_COOKIE_<大写用户名>
+      # Secrets 必须命名为 JXUT_COOKIE_<大写用户名>（程序按 config 里的 cookie_env 读取）
       JXUT_COOKIE: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
+      JXUT_COOKIE_${{ matrix.user }}: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
       TZ: Asia/Shanghai
       SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
       PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}

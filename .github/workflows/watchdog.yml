@@ -25,9 +25,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        user: ${{ fromJson(vars.GRAB_USERS || '["all"]') }}
+        user: ${{ fromJson(vars.GRAB_USERS || '["ZHANGSAN"]') }}
     env:
       JXUT_COOKIE: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
+      JXUT_COOKIE_${{ matrix.user }}: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
       SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
       PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
@@ -53,9 +54,10 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        user: ${{ fromJson(vars.GRAB_USERS || '["all"]') }}
+        user: ${{ fromJson(vars.GRAB_USERS || '["ZHANGSAN"]') }}
     env:
       JXUT_COOKIE: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
+      JXUT_COOKIE_${{ matrix.user }}: ${{ secrets[format('JXUT_COOKIE_{0}', matrix.user)] }}
       SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
       PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
       LOCK_GIST_ID: ${{ secrets.LOCK_GIST_ID }}
